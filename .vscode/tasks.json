@@ -1,0 +1,128 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run npm dev",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Diagnose TCP 3001",
+			"type": "shell",
+			"command": "powershell.exe -NoProfile -Command \"$c=Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue; if (!$c) { Write-Output 'NO_LISTENER' } else { foreach ($x in $c) { $p=Get-CimInstance Win32_Process -Filter ('ProcessId = ' + $x.OwningProcess); Write-Output ('PID=' + $p.ProcessId); Write-Output ('NAME=' + $p.Name); Write-Output ('COMMANDLINE=' + $p.CommandLine); Write-Output ('PARENT_PID=' + $p.ParentProcessId) } }\"",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Inspect TCP 3001",
+			"type": "shell",
+			"command": "$c = Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction SilentlyContinue; if (-not $c) { Write-Output 'NO_LISTENER' } else { foreach ($x in $c) { $p = Get-CimInstance Win32_Process -Filter ('ProcessId = ' + $x.OwningProcess); Write-Output ('PID=' + $p.ProcessId); Write-Output ('NAME=' + $p.Name); Write-Output ('COMMANDLINE=' + $p.CommandLine); Write-Output ('PARENT_PID=' + $p.ParentProcessId) } }",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Start CleanCity dev server",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "CleanCity Vite Dev Server",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"dev"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify CleanCity HTTP response",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				"-e",
+				"fetch('http://127.0.0.1:3002').then(async response => { console.log('HTTP', response.status); console.log((await response.text()).includes('/src/main.tsx') ? 'Vite app entry served' : 'Unexpected page content'); }).catch(error => { console.error(error); process.exitCode = 1; })"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Check CleanCity HTTP response",
+			"type": "shell",
+			"command": "curl.exe",
+			"args": [
+				"-I",
+				"http://127.0.0.1:3002/"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Git: check and push",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"-C",
+				"D:\\bin\\CleanCity",
+				"status",
+				"--short",
+				"--branch"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "GitHub: verify account and init",
+			"type": "shell",
+			"command": "powershell.exe",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Set-Location 'D:\\bin\\CleanCity'; git init; if (Get-Command gh -ErrorAction SilentlyContinue) { gh auth status } else { 'GH_CLI_NOT_FOUND' }; git status --short --branch"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Initialize repository",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"-C",
+				"D:\\bin\\CleanCity",
+				"init"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Check GitHub login",
+			"type": "shell",
+			"command": "gh",
+			"args": [
+				"auth",
+				"status"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Git: commit project",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"-C",
+				"D:\\bin\\CleanCity",
+				"add",
+				"-A"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}
