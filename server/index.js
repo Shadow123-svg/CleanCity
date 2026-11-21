@@ -1,12 +1,15 @@
 require('dotenv').config();
 
 const crypto = require('node:crypto');
+const http = require('node:http');
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
+const { WebSocketServer, WebSocket } = require('ws');
 
 const app = express();
 const port = Number(process.env.API_PORT || 3001);
+const host = process.env.API_HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const sessionCookie = 'cleancity_session';
 const sessionDuration = 8 * 60 * 60 * 1000;
 
@@ -196,7 +199,7 @@ app.post('/api/auth/login', async (req, res, next) => {
       [tokenHash(token), user.id, new Date(Date.now() + maxAge)],
     );
     setSessionCookie(res, token, maxAge);
-    res.json({ user: publicUser(user) });
+    res.json({ user: publicUser(user), session_token: token, expires_at: new Date(Date.now() + maxAge).toISOString() });
   } catch (error) {
     next(error);
   }
@@ -258,7 +261,13 @@ app.put('/api/users/:id', authenticate, requireSuperAdmin, async (req, res, next
        FROM users WHERE id = ?`,
       [req.params.id],
     );
-    res.json({ user: publicUser(rows[0]) });
+    const user = publicUser(rows[0]);
+    broadcastRealtime({
+      type: 'user.updated',
+      user,
+      timestamp: new Date().toISOString(),
+    });
+    res.json({ user });
   } catch (error) {
     next(error);
   }
@@ -284,11 +293,145 @@ app.put('/api/state', authenticate, async (req, res, next) => {
        ON DUPLICATE KEY UPDATE state_json = VALUES(state_json)`,
       ['main', JSON.stringify(state)],
     );
+    broadcastRealtime({
+      type: 'state.updated',
+      state,
+      timestamp: new Date().toISOString(),
+    });
     res.json({ message: 'Application data saved.' });
   } catch (error) {
     next(error);
   }
 });
+
+const server = http.createServer(app);
+const realtimeClients = new Set();
+const realtimeServer = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
+
+function sendRealtime(socket, payload) {
+  if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
+}
+
+function broadcastRealtime(payload) {
+  const message = JSON.stringify(payload);
+  for (const client of realtimeClients) {
+    if (client.socket.readyState === WebSocket.OPEN) client.socket.send(message);
+  }
+}
+
+async function authenticateRealtimeRequest(request) {
+  let token = '';
+  const authorization = request.headers.authorization;
+  if (typeof authorization === 'string' && authorization.startsWith('Bearer ')) {
+    token = authorization.slice(7).trim();
+  }
+  if (!token) {
+    const requestUrl = new URL(request.url || '/ws', 'http://localhost');
+    token = requestUrl.searchParams.get('token') || '';
+  }
+  if (!token) {
+    const cookies = String(request.headers.cookie || '');
+    token = cookies
+      .split(';')
+      .map(value => value.trim())
+      .find(value => value.startsWith(`${sessionCookie}=`))
+      ?.slice(sessionCookie.length + 1) || '';
+  }
+  if (!token) return null;
+
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.full_name, u.email, u.phone, u.organization, u.role,
+            u.employee_id, u.account_status, u.created_at
+     FROM sessions s JOIN users u ON u.id = s.user_id
+     WHERE s.token_hash = ? AND s.expires_at > NOW() AND u.account_status = 'Active'
+     LIMIT 1`,
+    [tokenHash(decodeURIComponent(token))],
+  );
+  return rows.length ? publicUser(rows[0]) : null;
+}
+
+realtimeServer.on('connection', (socket, request) => {
+  const client = { socket, user: request.realtimeUser, isAlive: true };
+  realtimeClients.add(client);
+  socket.on('pong', () => { client.isAlive = true; });
+
+  sendRealtime(socket, {
+    type: 'connected',
+    user: client.user,
+    timestamp: new Date().toISOString(),
+  });
+
+  socket.on('message', async rawMessage => {
+    let message;
+    try {
+      message = JSON.parse(rawMessage.toString());
+    } catch {
+      sendRealtime(socket, { type: 'error', error: 'Messages must be valid JSON.' });
+      return;
+    }
+
+    if (message.type === 'ping') {
+      sendRealtime(socket, { type: 'pong', timestamp: new Date().toISOString() });
+      return;
+    }
+
+    if (message.type === 'subscribe' || message.type === 'state.request') {
+      try {
+        const [rows] = await pool.execute('SELECT state_json FROM app_state WHERE state_key = ?', ['main']);
+        sendRealtime(socket, {
+          type: 'state.updated',
+          state: rows.length ? rows[0].state_json : null,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        sendRealtime(socket, { type: 'error', error: 'Could not load application state.' });
+      }
+      return;
+    }
+
+    sendRealtime(socket, { type: 'error', error: `Unknown message type: ${String(message.type || '')}` });
+  });
+
+  socket.on('close', () => realtimeClients.delete(client));
+  socket.on('error', () => realtimeClients.delete(client));
+});
+
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url || '/ws', 'http://localhost').pathname;
+  if (pathname !== '/ws') {
+    socket.destroy();
+    return;
+  }
+  authenticateRealtimeRequest(request)
+    .then(user => {
+      if (!user) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      request.realtimeUser = user;
+      realtimeServer.handleUpgrade(request, socket, head, ws => {
+        realtimeServer.emit('connection', ws, request);
+      });
+    })
+    .catch(() => {
+      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+      socket.destroy();
+    });
+});
+
+const realtimeHeartbeat = setInterval(() => {
+  for (const client of realtimeClients) {
+    if (!client.isAlive) {
+      client.socket.terminate();
+      realtimeClients.delete(client);
+      continue;
+    }
+    client.isAlive = false;
+    client.socket.ping();
+  }
+}, 30000);
+realtimeHeartbeat.unref();
 
 app.use((error, _req, res, _next) => {
   console.error(error);
@@ -297,7 +440,7 @@ app.use((error, _req, res, _next) => {
 });
 
 initializeDatabase()
-  .then(() => app.listen(port, '127.0.0.1', () => console.log(`CleanCity API listening on http://127.0.0.1:${port}`)))
+  .then(() => server.listen(port, host, () => console.log(`CleanCity API listening on http://${host}:${port}`)))
   .catch(error => {
     console.error('Could not initialize the CleanCity database:', error);
     process.exitCode = 1;

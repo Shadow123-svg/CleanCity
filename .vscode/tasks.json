@@ -123,6 +123,19 @@
 			],
 			"isBackground": false,
 			"problemMatcher": []
+		},
+		{
+			"label": "Git: stage WebSocket changes",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"-C",
+				"D:\\bin\\CleanCity",
+				"add",
+				"-A"
+			],
+			"isBackground": false,
+			"problemMatcher": []
 		}
 	]
 }

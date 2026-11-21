@@ -10,7 +10,7 @@ import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
-import { ApiError, apiRequest } from './api';
+import { ApiError, apiRequest, createRealtimeConnection, RealtimeMessage } from './api';
 
 // ============================================================================
 // TYPES
@@ -395,6 +395,44 @@ export default function App() {
     }, 700);
     return () => window.clearTimeout(timer);
   }, [isAuthenticated, databaseReady, dustbins, sensorHistory, collections, notifications, auditLogs, thresholds, triggerToast]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !databaseReady) return;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+    let stopped = false;
+
+    const connect = () => {
+      socket = createRealtimeConnection(undefined, (message: RealtimeMessage) => {
+        if (message.type !== 'state.updated' || !message.state || typeof message.state !== 'object') return;
+        const state = message.state as Partial<{
+          dustbins: Dustbin[];
+          sensorHistory: SensorReading[];
+          collections: Collection[];
+          notifications: Notification[];
+          auditLogs: AuditLog[];
+          thresholds: Thresholds;
+        }>;
+        if (Array.isArray(state.dustbins)) setDustbins(state.dustbins);
+        if (Array.isArray(state.sensorHistory)) setSensorHistory(state.sensorHistory);
+        if (Array.isArray(state.collections)) setCollections(state.collections);
+        if (Array.isArray(state.notifications)) setNotifications(state.notifications);
+        if (Array.isArray(state.auditLogs)) setAuditLogs(state.auditLogs);
+        if (state.thresholds) setThresholds(state.thresholds);
+      });
+      socket.addEventListener('close', () => {
+        if (stopped) return;
+        reconnectTimer = window.setTimeout(connect, 3000);
+      });
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      socket?.close();
+    };
+  }, [isAuthenticated, databaseReady]);
 
   // --- Dustbin filters ---
   const [searchQuery, setSearchQuery] = useState('');

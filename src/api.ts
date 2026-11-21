@@ -33,3 +33,32 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   }
   return result as T;
 }
+
+export interface RealtimeMessage {
+  type: string;
+  state?: unknown;
+  user?: unknown;
+  timestamp?: string;
+  error?: string;
+}
+
+export function createRealtimeConnection(
+  sessionToken?: string,
+  onMessage?: (message: RealtimeMessage) => void,
+): WebSocket {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const tokenQuery = sessionToken ? `?token=${encodeURIComponent(sessionToken)}` : '';
+  const socket = new WebSocket(`${protocol}//${window.location.host}/ws${tokenQuery}`);
+  socket.addEventListener('open', () => {
+    socket.send(JSON.stringify({ type: 'subscribe' }));
+  });
+  socket.addEventListener('message', event => {
+    try {
+      const message = JSON.parse(String(event.data)) as RealtimeMessage;
+      onMessage?.(message);
+    } catch {
+      // Ignore malformed server frames.
+    }
+  });
+  return socket;
+}
