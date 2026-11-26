@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const crypto = require('node:crypto');
 const http = require('node:http');
+const path = require('node:path');
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
@@ -10,6 +11,7 @@ const { WebSocketServer, WebSocket } = require('ws');
 const app = express();
 const port = Number(process.env.API_PORT || 3001);
 const host = process.env.API_HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
+const frontendDistDir = path.resolve(__dirname, '../dist');
 const sessionCookie = 'cleancity_session';
 const sessionDuration = 8 * 60 * 60 * 1000;
 
@@ -52,13 +54,30 @@ function tokenHash(token) {
   return crypto.createHmac('sha256', process.env.SESSION_SECRET).update(token).digest('hex');
 }
 
+function getSessionToken(req) {
+  const authorization = req.headers.authorization;
+  if (typeof authorization === 'string' && authorization.startsWith('Bearer ')) {
+    const bearerToken = authorization.slice(7).trim();
+    return bearerToken || null;
+  }
+
+  const encodedToken = String(req.headers.cookie || '')
+    .split(';')
+    .map(value => value.trim())
+    .find(value => value.startsWith(`${sessionCookie}=`))
+    ?.slice(sessionCookie.length + 1);
+  if (!encodedToken) return null;
+
+  try {
+    return decodeURIComponent(encodedToken);
+  } catch {
+    return null;
+  }
+}
+
 async function authenticate(req, res, next) {
   try {
-    const token = req.headers.cookie
-      ?.split(';')
-      .map(value => value.trim())
-      .find(value => value.startsWith(`${sessionCookie}=`))
-      ?.slice(sessionCookie.length + 1);
+    const token = getSessionToken(req);
     if (!token) return res.status(401).json({ error: 'Authentication required.' });
 
     const [rows] = await pool.execute(
@@ -67,7 +86,7 @@ async function authenticate(req, res, next) {
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ? AND s.expires_at > NOW() AND u.account_status = 'Active'
        LIMIT 1`,
-      [tokenHash(decodeURIComponent(token))],
+      [tokenHash(token)],
     );
     if (!rows.length) return res.status(401).json({ error: 'Session expired. Please sign in again.' });
     req.user = publicUser(rows[0]);
@@ -209,12 +228,8 @@ app.get('/api/auth/me', authenticate, (req, res) => res.json({ user: req.user })
 
 app.post('/api/auth/logout', async (req, res, next) => {
   try {
-    const token = req.headers.cookie
-      ?.split(';')
-      .map(value => value.trim())
-      .find(value => value.startsWith(`${sessionCookie}=`))
-      ?.slice(sessionCookie.length + 1);
-    if (token) await pool.execute('DELETE FROM sessions WHERE token_hash = ?', [tokenHash(decodeURIComponent(token))]);
+    const token = getSessionToken(req);
+    if (token) await pool.execute('DELETE FROM sessions WHERE token_hash = ?', [tokenHash(token)]);
     const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
     res.setHeader('Set-Cookie', `${sessionCookie}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`);
     res.json({ message: 'Signed out.' });
@@ -277,6 +292,33 @@ app.get('/api/state', authenticate, async (_req, res, next) => {
   try {
     const [rows] = await pool.execute('SELECT state_json FROM app_state WHERE state_key = ?', ['main']);
     res.json({ state: rows.length ? rows[0].state_json : null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/bins', authenticate, async (_req, res, next) => {
+  try {
+    const [rows] = await pool.execute('SELECT state_json FROM app_state WHERE state_key = ?', ['main']);
+    const dustbins = rows[0]?.state_json?.dustbins;
+    const bins = Array.isArray(dustbins)
+      ? dustbins.map(bin => ({
+          id: bin.id,
+          name: bin.name,
+          location_name: bin.location_name,
+          campus_zone: bin.campus_zone,
+          address: bin.address,
+          latitude: bin.latitude,
+          longitude: bin.longitude,
+          waste_category: bin.waste_category,
+          operational_status: bin.operational_status,
+          sensor_status: bin.sensor_status,
+          fill_percentage: bin.fill_percentage,
+          weight: bin.weight,
+          last_sensor_update: bin.last_sensor_update,
+        }))
+      : [];
+    res.json({ bins });
   } catch (error) {
     next(error);
   }
@@ -417,6 +459,21 @@ server.on('upgrade', (request, socket, head) => {
     .catch(() => {
       socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
       socket.destroy();
+    });
+});
+
+app.use(express.static(frontendDistDir));
+app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api') || req.path === '/ws') {
+      return next();
+    }
+
+    res.sendFile(path.join(frontendDistDir, 'index.html'), error => {
+      if (!error) return;
+      if (error.code === 'ENOENT') {
+        return res.status(503).type('text/plain').send('Frontend build is missing. Run npm run build from the repository root.');
+      }
+      next(error);
     });
 });
 

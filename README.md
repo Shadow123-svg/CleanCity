@@ -12,16 +12,19 @@
    ```
 
 2. Copy `.env.example` to `.env` and set your database credentials, a random `SESSION_SECRET` (at least 32 characters), a private `REGISTRATION_CODE`, and a unique bootstrap admin email/password (at least 12 characters). The first startup creates that Super Admin only when the users table is empty. Keep `.env` private.
-3. Install dependencies and start both the API and frontend:
+3. Install dependencies, build the frontend, and start the Node server:
 
    ```sh
    npm install
+   npm run build
    npm run dev
    ```
 
-   Open `http://127.0.0.1:3002`. The API creates its tables on startup. Users register with the private registration code and require Super Admin approval before signing in. The app's dashboard data is stored in the MySQL `app_state` table; account credentials are stored separately as bcrypt hashes.
+   Open `http://127.0.0.1:3001`. The Node API serves the built website from `dist/` and creates its tables on startup. Users register with the private registration code and require Super Admin approval before signing in. The app's dashboard data is stored in the MySQL `app_state` table; account credentials are stored separately as bcrypt hashes.
 
-The API also runs by itself with `npm run dev:api`. In production, serve the frontend and API on the same origin over HTTPS and set `NODE_ENV=production`.
+`npm run dev` and `npm start` run the Node API and serve the built frontend. Use `npm run dev:frontend` for Vite hot reload during UI development; it proxies API requests to port 3001. In production, serve the frontend and API on the same origin over HTTPS and set `NODE_ENV=production`.
+
+The Android app can sign in with `POST /api/auth/login` and read bin status from `GET /api/bins` using the returned Bearer session token. Store that token in Android secure storage.
 
 ## Mobile WebSocket connection
 

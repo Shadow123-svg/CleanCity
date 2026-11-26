@@ -1,13 +1,80 @@
 @import "tailwindcss";
 
-html, body, #root {
-  margin: 0;
-  min-height: 100%;
-  min-width: 100%;
-  background: #f8fafc;
-  font-family: Inter, system-ui, sans-serif;
+@theme {
+  --font-serif: "Fraunces", Georgia, Cambria, serif;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Earthy Green-Brown Botanical & Campus Architecture Palette */
+  --color-canvas: #F5F2EB;
+  --color-surface: #FDFCF9;
+  --color-surface-alt: #EDE8DC;
+  --color-surface-hover: #F3EFE6;
+
+  --color-border: #D9D0BF;
+  --color-border-strong: #BFAF95;
+
+  --color-ink: #1E241C;
+  --color-bark: #564738;
+  --color-soil: #7D6E5D;
+
+  /* Primary solid accent: Botanical Forest Green */
+  --color-forest: #244F34;
+  --color-forest-hover: #1B3E28;
+  --color-forest-soft: #E6EFE8;
+  --color-forest-border: #B9D1C0;
+  --color-leaf: #4B7448;
+
+  /* Secondary architectural accent: Warm Cedar / Walnut Brown */
+  --color-cedar: #7A4B2A;
+  --color-cedar-hover: #623B20;
+  --color-cedar-soft: #F4EAE0;
+  --color-cedar-border: #DEC4AC;
+
+  /* High-contrast status tones tuned to earthy surfaces */
+  --color-ochre: #B26819;
+  --color-ochre-soft: #FBF1E3;
+  --color-ochre-border: #E5C49B;
+
+  --color-clay: #A53526;
+  --color-clay-soft: #FAEBE8;
+  --color-clay-border: #E2B3AC;
 }
 
-body {
-  min-height: 100vh;
+@layer base {
+  html,
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+  }
+
+  h1,
+  h2,
+  .font-editorial {
+    font-family: var(--font-serif);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Crisp custom scrollbars matching sandstone/bark tones */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-canvas);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C9BEA9;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A99B82;
 }
